@@ -15,6 +15,10 @@ const envSchema = z.object({
 
   FRONTEND_URL: z.string().url().default("http://localhost:5173"),
 
+  SESSION_SECRET: z.string().default(""),
+  SESSION_MAX_AGE_MS: z.coerce.number().int().positive().default(7 * 24 * 60 * 60 * 1000),
+  SESSION_COOKIE_SECURE: z.string().trim().default(""),
+
   GOOGLE_CLIENT_ID: z.string().default(""),
   GOOGLE_CLIENT_SECRET: z.string().default(""),
   GOOGLE_CALLBACK_URL: z.string().default(""),
