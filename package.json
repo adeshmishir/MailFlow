@@ -1,0 +1,19 @@
+{
+  "name": "mailflow",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MailFlow - production-grade email scheduling and delivery system",
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "backend:dev": "npm run dev --workspace backend",
+    "backend:build": "npm run build --workspace backend",
+    "worker:dev": "npm run worker --workspace backend",
+    "frontend:dev": "npm run dev --workspace frontend",
+    "db:generate": "npm run db:generate --workspace backend",
+    "db:migrate": "npm run db:migrate --workspace backend",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  }
+}
