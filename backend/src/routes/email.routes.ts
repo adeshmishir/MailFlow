@@ -7,6 +7,7 @@ import {
   scheduleEmailsSchema,
   scheduleEmails,
 } from "../services/emailScheduling.service";
+import { searchEmails } from "../services/search.service";
 import { asyncHandler } from "../middleware/asyncHandler";
 
 const emailRouter = Router();
@@ -67,6 +68,31 @@ emailRouter.get(
     const limit =
       typeof req.query.limit === "string" ? Number(req.query.limit) : undefined;
     const result = await listSentEmails(req.user!.id, cursor, limit);
+    return res.json(result);
+  }),
+);
+
+/**
+ * GET /api/emails/search?q=searchTerm&status=&page=1&pageSize=20
+ * Auth required. Search user's indexed emails using Elasticsearch with user isolation.
+ */
+emailRouter.get(
+  "/search",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const q = typeof req.query.q === "string" ? req.query.q : undefined;
+    const status = typeof req.query.status === "string" ? req.query.status : undefined;
+    const page = typeof req.query.page === "string" ? Number(req.query.page) : 1;
+    const pageSize = typeof req.query.pageSize === "string" ? Number(req.query.pageSize) : 20;
+
+    const result = await searchEmails({
+      userId: req.user!.id,
+      q,
+      status,
+      page,
+      pageSize,
+    });
+
     return res.json(result);
   }),
 );
