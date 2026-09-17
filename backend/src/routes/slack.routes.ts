@@ -80,6 +80,7 @@ slackRouter.get(
         tokenData.accessToken,
         tokenData.teamId,
         tokenData.teamName,
+        tokenData.channelId,
       );
 
       return res.redirect(`${env.FRONTEND_URL}?slack=connected`);

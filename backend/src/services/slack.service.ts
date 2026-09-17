@@ -4,6 +4,7 @@ import { createRedisConnection } from "../queues/email.queue";
 
 export interface SlackStatusResult {
   connected: boolean;
+  configured: boolean;
   teamName: string | null;
   teamId: string | null;
 }
@@ -47,6 +48,7 @@ export async function exchangeCodeForToken(code: string): Promise<{
   accessToken: string;
   teamId: string;
   teamName: string;
+  channelId: string | null;
 }> {
   if (!env.SLACK_CLIENT_ID || !env.SLACK_CLIENT_SECRET || !env.SLACK_REDIRECT_URI) {
     throw new Error("Slack OAuth is not configured on the server.");
@@ -80,6 +82,7 @@ export async function exchangeCodeForToken(code: string): Promise<{
     accessToken: data.access_token,
     teamId: data.team.id,
     teamName: data.team.name || "Slack Workspace",
+    channelId: data.authed_user?.id ?? null,
   };
 }
 
@@ -91,6 +94,7 @@ export async function upsertSlackConnection(
   accessToken: string,
   teamId: string,
   teamName: string,
+  channelId: string | null = null,
 ) {
   return prisma.slackConnection.upsert({
     where: { userId },
@@ -99,11 +103,13 @@ export async function upsertSlackConnection(
       accessToken,
       teamId,
       teamName,
+      channelId,
     },
     update: {
       accessToken,
       teamId,
       teamName,
+      channelId,
     },
   });
 }
@@ -122,6 +128,7 @@ export async function disconnectSlack(userId: string): Promise<boolean> {
  * Return current Slack connection status for a user (never exposing access tokens).
  */
 export async function getSlackStatus(userId: string): Promise<SlackStatusResult> {
+  const isConfigured = Boolean(env.SLACK_CLIENT_ID) && Boolean(env.SLACK_CLIENT_SECRET);
   const conn = await prisma.slackConnection.findUnique({
     where: { userId },
     select: {
@@ -133,6 +140,7 @@ export async function getSlackStatus(userId: string): Promise<SlackStatusResult>
   if (!conn) {
     return {
       connected: false,
+      configured: isConfigured,
       teamName: null,
       teamId: null,
     };
@@ -140,6 +148,7 @@ export async function getSlackStatus(userId: string): Promise<SlackStatusResult>
 
   return {
     connected: true,
+    configured: isConfigured,
     teamName: conn.teamName,
     teamId: conn.teamId,
   };
@@ -147,18 +156,28 @@ export async function getSlackStatus(userId: string): Promise<SlackStatusResult>
 
 /**
  * Send a message to Slack workspace using the stored access token.
+ * `channel` (a channel id or the connecting Slack user's id for a DM)
+ * is used when available; otherwise the message is attempted without an
+ * explicit channel. Failures are swallowed so email processing never breaks.
  */
-export async function postSlackMessage(accessToken: string, text: string): Promise<boolean> {
+export async function postSlackMessage(
+  accessToken: string,
+  text: string,
+  channel?: string | null,
+): Promise<boolean> {
   try {
+    const payload: Record<string, string> = { text };
+    if (channel) {
+      payload.channel = channel;
+    }
+
     const response = await fetch("https://slack.com/api/chat.postMessage", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${accessToken}`,
         "Content-Type": "application/json; charset=utf-8",
       },
-      body: JSON.stringify({
-        text,
-      }),
+      body: JSON.stringify(payload),
     });
 
     const data = (await response.json()) as { ok: boolean; error?: string };
@@ -201,7 +220,7 @@ export async function sendRateLimitSlackAlert(userId: string, senderEmail: strin
     }
 
     const alertMessage = `⚠️ MailFlow rate limit reached for sender ${senderEmail}. Email processing has been delayed and will resume when allowed.`;
-    const sent = await postSlackMessage(conn.accessToken, alertMessage);
+    const sent = await postSlackMessage(conn.accessToken, alertMessage, conn.channelId);
 
     if (sent) {
       console.log(`[slack] Rate limit alert notification sent to Slack workspace ${conn.teamName} for ${senderEmail}`);
