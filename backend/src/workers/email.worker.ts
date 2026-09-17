@@ -7,6 +7,9 @@ import {
   sendEmail,
   type EmailSendParams,
 } from "../services/email.service";
+import { indexEmail } from "../services/search.service";
+import { sendRateLimitSlackAlert } from "../services/slack.service";
+import { acquireSendSlot } from "../services/rateLimit.service";
 
 interface SendEmailData {
   emailId: string;
@@ -15,23 +18,11 @@ interface SendEmailData {
 /**
  * email.worker.ts
  *
- * BullMQ Worker for the "email-send" queue. One job == one Email row;
- * jobId == Email.id. It is the ONLY consumer that calls sendEmail()
- * (the SMTP module) and never builds a transporter itself.
- *
- * Idempotency is done two ways:
- *   1. BullMQ jobId uniqueness (jobId = Email.id) means a double enqueue is
- *      impossible at the queue layer.
- *   2. The worker claims an email with an atomic status transition
- *      SCHEDULED -> PROCESSING before sending, so a concurrent worker cannot
- *      double-send.
- *
- * Retry policy (BullMQ-native):
- *   - transient SMTP errors (4xx, connection refused/timeout) -> rethrow;
- *     BullMQ retries with exponential backoff (attempts=3 set at enqueue).
- *   - permanent SMTP errors (5xx, recipient rejected) -> mark the Email
- *     FAILED, never retry.
- *   - exhausted attempts -> mark FAILED with the last error.
+ * BullMQ Worker for the "email-send" queue.
+ * Integrates:
+ *   - Atomic Redis rate-limiting and min-delay gating
+ *   - Slack alert notifications on rate limit hit
+ *   - Automatic Elasticsearch indexing on SENT / FAILED status
  */
 async function runSend(job: Job, emailId: string): Promise<void> {
   const email = await prisma.email.findUnique({
@@ -49,12 +40,37 @@ async function runSend(job: Job, emailId: string): Promise<void> {
     return; // stale / already claimed by another worker
   }
 
+  // 1. Check rate limit and min-delay gate
+  const redis = createRedisConnection();
+  try {
+    const slot = await acquireSendSlot(redis, email.campaign.senderId);
+    if (!slot.allowed) {
+      // If hourly rate limit reached, send Slack alert (deduplicated by Redis)
+      if (slot.retryAfterMs > env.MIN_EMAIL_DELAY_MS) {
+        await sendRateLimitSlackAlert(email.campaign.userId, email.campaign.sender.email);
+      }
+
+      // Delay job without failing it
+      if (job.token) {
+        await job.moveToDelayed(Date.now() + slot.retryAfterMs, job.token);
+      } else {
+        throw new Error(
+          `Rate limit or gate active for sender ${email.campaign.senderId}. Retry after ${slot.retryAfterMs}ms`,
+        );
+      }
+      return;
+    }
+  } finally {
+    redis.disconnect();
+  }
+
+  // 2. Claim email status SCHEDULED -> PROCESSING
   const claimed = await prisma.email.updateMany({
     where: { id: emailId, status: "SCHEDULED" },
     data: { status: "PROCESSING" },
   });
   if (claimed.count === 0) {
-    return; // lost the claim to a concurrent worker
+    return; // lost claim to concurrent worker
   }
 
   try {
@@ -73,6 +89,11 @@ async function runSend(job: Job, emailId: string): Promise<void> {
       data: { status: "SENT", sentAt: new Date() },
     });
 
+    // 3. Update search index in Elasticsearch (non-blocking)
+    indexEmail(emailId).catch((err) =>
+      console.warn(`[worker] Failed to index sent email ${emailId}:`, err),
+    );
+
     if (info.previewUrl) {
       console.log(`[worker] ${job.id} preview: ${info.previewUrl}`);
     }
@@ -89,8 +110,20 @@ async function runSend(job: Job, emailId: string): Promise<void> {
           error: err instanceof Error ? err.message : String(err),
         },
       });
+
+      // Update search index in Elasticsearch (non-blocking)
+      indexEmail(emailId).catch((indexingErr) =>
+        console.warn(`[worker] Failed to index failed email ${emailId}:`, indexingErr),
+      );
+
       return; // permanent or exhausted: do NOT rethrow
     }
+
+    // Revert status to SCHEDULED for retry
+    await prisma.email.updateMany({
+      where: { id: emailId, status: "PROCESSING" },
+      data: { status: "SCHEDULED" },
+    });
 
     throw err; // transient: let BullMQ backoff retry
   }
