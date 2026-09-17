@@ -186,6 +186,89 @@ export default function EmailDetailPage({
               </div>
             </div>
 
+            {/* Delivery Information */}
+            <div className="pt-4 border-t border-gray-100 space-y-3">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                Delivery
+              </p>
+
+              {email.status === "SENT" ? (
+                <div
+                  className={`rounded-xl p-4 text-sm space-y-2 border ${
+                    email.deliveryProvider === "ethereal"
+                      ? "bg-amber-50/90 border-amber-200 text-amber-900"
+                      : "bg-emerald-50/80 border-emerald-200 text-emerald-900"
+                  }`}
+                >
+                  {email.deliveryProvider === "ethereal" ? (
+                    <>
+                      <p className="font-semibold flex items-center gap-2">
+                        <span>🧪 Test delivery (Ethereal)</span>
+                      </p>
+                      <p className="text-xs leading-relaxed">
+                        This message was <strong>accepted by Ethereal&apos;s test SMTP</strong> —
+                        it was <strong>NOT delivered</strong> to a real inbox such as Gmail.
+                        Open the preview below to read the message.
+                      </p>
+                      {email.deliveryPreviewUrl && (
+                        <a
+                          href={email.deliveryPreviewUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-block mt-1 text-xs font-semibold text-emerald-800 bg-emerald-100 hover:bg-emerald-200 border border-emerald-300 rounded-full px-3 py-1"
+                        >
+                          Open test preview ↗
+                        </a>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <p className="font-semibold">
+                        ✅ Accepted by SMTP provider{email.deliveryMessageId ? " (confirmation received)" : ""}
+                      </p>
+                      <p className="text-xs leading-relaxed">
+                        The provider accepted the message for delivery.
+                        Actual arrival in the recipient&apos;s inbox depends on the provider&apos;s own
+                        delivery pipeline.
+                      </p>
+                    </>
+                  )}
+                </div>
+              ) : email.status === "FAILED" ? (
+                <div className="bg-red-50/90 border border-red-200 rounded-xl p-4 text-sm text-red-800 space-y-1">
+                  <p className="font-semibold">❌ Delivery failed</p>
+                  <p className="text-xs leading-relaxed break-words">
+                    {email.error || "The SMTP provider rejected or could not process this message."}
+                  </p>
+                </div>
+              ) : (
+                <p className="text-xs text-gray-500">
+                  This email has not been sent yet (status: {email.status}).
+                </p>
+              )}
+
+              {(email.deliveryMessageId || email.deliveryProvider) && (
+                <div className="flex flex-wrap gap-4">
+                  {email.deliveryProvider && (
+                    <div className="border border-gray-200 bg-gray-50 rounded-xl p-3 text-xs text-gray-700 min-w-[200px]">
+                      <p className="font-semibold text-gray-900">Provider</p>
+                      <p className="font-mono text-gray-500">
+                        {email.deliveryProvider === "ethereal" ? "Ethereal (test)" : "SMTP"}
+                      </p>
+                    </div>
+                  )}
+                  {email.deliveryMessageId && (
+                    <div className="border border-gray-200 bg-gray-50 rounded-xl p-3 text-xs text-gray-700 min-w-[200px]">
+                      <p className="font-semibold text-gray-900">Message ID</p>
+                      <p className="text-[11px] font-mono text-gray-500 truncate max-w-[240px]">
+                        {email.deliveryMessageId}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
             {/* Attachments Section if needed */}
             <div className="pt-6 border-t border-gray-100 space-y-3">
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">

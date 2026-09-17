@@ -1,0 +1,144 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# MailFlow — Render Blueprint
+#
+# Provisions (in OREGON by default):
+#   * mailflow-db       → Render Postgres (DATABASE_URL wired automatically)
+#   * mailflow-kv       → Render Key Value / Redis (REDIS_URL wired automatically)
+#   * mailflow-api      → Docker Web Service (Express API on PORT; runs
+#                         `prisma migrate deploy` on every deploy)
+#   * mailflow-worker   → Docker Background Worker (BullMQ email worker)
+#   * mailflow-ui       → Docker Web Service (nginx serving the Vite build and
+#                         reverse-proxying /api to the backend)
+#
+# MANUAL input required at creation: Google/Slack OAuth secrets are prompted
+# (sync: false). No secret values are stored in this file.
+#
+# NOT automatically provisioned (must be set up manually — see README):
+#   * Elasticsearch  → app keeps working without it; search API degrades.
+#                      Add ELASTICSEARCH_URL (+ ELASTICSEARCH_API_KEY) on
+#                      mailflow-api and mailflow-worker once provisioned.
+#   * SMTP provider  → add SMTP_HOST/PORT/USER/PASSWORD(+SMTP_SECURE, optional
+#                      SMTP_ALLOW_ANY_FROM) to mailflow-worker (and optionally
+#                      mailflow-api) once you want real delivery. Without them
+#                      the app uses Ethereal test SMTP.
+#
+# Plans default to `free` for evaluation. Free instances sleep when idle
+# (spins down the worker queue) and free Postgres/KV have limited retention —
+# use paid plans before real use:
+#   api/worker/ui:  0.5c-512mb (or 1c-2g for busy workloads)
+#   mailflow-db:    0.5c-1g
+#   mailflow-kv:    256mb
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  ################################################
+  # Backend API — Express + BullMQ dashboard
+  ################################################
+  - type: web
+    name: mailflow-api
+    runtime: docker
+    plan: free # -> 0.5c-512mb before real use
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    # Safe, idempotent migrations run before every deploy. `prisma migrate
+    # deploy` never resets or drops production data.
+    preDeployCommand: npx prisma migrate deploy --schema prisma/schema.prisma
+    healthCheckPath: /api/health
+    numInstances: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: mailflow-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: mailflow-kv
+          type: keyvalue
+          property: connectionString
+      # Generated once by Render (base64 256-bit). Only the API signs sessions.
+      - key: SESSION_SECRET
+        generateValue: true
+      # Public origin of the frontend. MUST match the actual frontend URL.
+      - key: FRONTEND_URL
+        value: https://mailflow-ui.onrender.com
+      - key: GOOGLE_CLIENT_ID
+        sync: false # entered manually at creation
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false # entered manually at creation
+      # Must be added verbatim to Google Cloud's Authorized redirect URIs.
+      - key: GOOGLE_CALLBACK_URL
+        value: https://mailflow-ui.onrender.com/api/auth/google/callback
+      - key: SLACK_CLIENT_ID
+        sync: false # entered manually at creation
+      - key: SLACK_CLIENT_SECRET
+        sync: false # entered manually at creation
+      # Must match the Slack app's Redirect URL exactly.
+      - key: SLACK_REDIRECT_URI
+        value: https://mailflow-ui.onrender.com/api/slack/callback
+
+  ################################################
+  # Email worker — BullMQ consumer (separate process)
+  ################################################
+  - type: worker
+    name: mailflow-worker
+    runtime: docker
+    plan: free # -> 0.5c-512mb before real use
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    dockerCommand: node dist/worker.js
+    numInstances: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: mailflow-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: mailflow-kv
+          type: keyvalue
+          property: connectionString
+      # Optional overrides of BullMQ scheduling behaviour (see .env.example):
+      # WORKER_CONCURRENCY, MIN_EMAIL_DELAY_MS, MAX_EMAILS_PER_HOUR
+      # Optional Elasticsearch + SMTP — see header comment.
+
+  ################################################
+  # Frontend — nginx (same-origin /api proxy for
+  # simple, dependable cookies & OAuth callbacks)
+  ################################################
+  - type: web
+    name: mailflow-ui
+    runtime: docker
+    plan: free # -> 0.5c-512mb before real use
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /
+    numInstances: 1
+    envVars:
+      # nginx reverse-proxies /api/* to the backend. Set to the backend's
+      # public onrender.com URL. After the first deploy, verify it matches
+      # `mailflow-api`'s actual URL (Render appends a suffix if the name is
+      # taken) and update this value if needed.
+      - key: BACKEND_URL
+        value: https://mailflow-api.onrender.com
+
+  ################################################
+  # Redis-compatible Key Value store
+  ################################################
+  - type: keyvalue
+    name: mailflow-kv
+    plan: free # 25 MB eval tier -> 256mb before real use
+    # The connectionString wired into the services above is private-network;
+    # this allow-list governs the (unused) public endpoint.
+    ipAllowList: []
+    region: oregon
+
+databases:
+  # Postgres for MailFlow (source of truth). Free plans expire after 30 days.
+  - name: mailflow-db
+    databaseName: mailflow
+    user: mailflow
+    region: oregon

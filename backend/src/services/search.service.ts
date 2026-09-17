@@ -6,8 +6,18 @@ let clientInstance: Client | null = null;
 
 export function getElasticsearchClient(): Client {
   if (!clientInstance) {
+    const node = env.ELASTICSEARCH_URL;
+    const apiKey = env.ELASTICSEARCH_API_KEY;
     clientInstance = new Client({
-      node: env.ELASTICSEARCH_URL,
+      node,
+      ...(apiKey
+        ? {
+            auth: { apiKey },
+            // Elastic Cloud endpoints are given as https://<id>.es.<region>.host;
+            // leave the link object to the client defaults so it resolves them.
+            tls: { rejectUnauthorized: true },
+          }
+        : {}),
       maxRetries: 3,
       requestTimeout: 5000,
     });
@@ -30,6 +40,9 @@ export interface IndexedEmailDocument {
   sentAt: string | null;
   createdAt: string;
   error: string | null;
+  deliveryProvider: string | null;
+  deliveryMessageId: string | null;
+  deliveryPreviewUrl: string | null;
 }
 
 export interface SearchEmailsParams {
@@ -86,6 +99,9 @@ export async function initSearchIndex(): Promise<boolean> {
             sentAt: { type: "date" },
             createdAt: { type: "date" },
             error: { type: "text" },
+            deliveryProvider: { type: "keyword" },
+            deliveryMessageId: { type: "keyword" },
+            deliveryPreviewUrl: { type: "keyword" },
           },
         },
       });
@@ -150,6 +166,9 @@ export async function indexEmail(emailId: string): Promise<boolean> {
       sentAt: email.sentAt ? email.sentAt.toISOString() : null,
       createdAt: email.createdAt.toISOString(),
       error: email.error,
+      deliveryProvider: email.deliveryProvider,
+      deliveryMessageId: email.deliveryMessageId,
+      deliveryPreviewUrl: email.deliveryPreviewUrl,
     };
 
     const client = getElasticsearchClient();

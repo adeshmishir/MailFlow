@@ -134,6 +134,9 @@ emailRouter.get(
         sentAt: email.sentAt,
         createdAt: email.createdAt,
         error: email.error,
+        deliveryProvider: email.deliveryProvider,
+        deliveryMessageId: email.deliveryMessageId,
+        deliveryPreviewUrl: email.deliveryPreviewUrl,
         sender: {
           id: email.campaign.sender.id,
           name: email.campaign.sender.name,

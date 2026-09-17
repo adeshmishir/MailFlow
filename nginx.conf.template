@@ -1,0 +1,58 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# MailFlow nginx configuration — TEMPLATE
+#
+# The official nginx image runs envsubst over every file in
+# /etc/nginx/templates/*.template at container start and writes the result to
+# /etc/nginx/conf.d/. Only environment variables that are DEFINED are
+# substituted, so nginx's own $variables (e.g. $scheme) are preserved.
+#
+# Required env vars (with sensible in-image defaults — see Dockerfile):
+#   PORT         HTTP listen port. Set by Render on web services; defaults to
+#                80 for the local docker-compose.prod.yml stack.
+#   BACKEND_URL  Origin of the Express API, WITHOUT a trailing slash. Defaults
+#                to http://backend:5000 for docker-compose.prod.yml (Docker
+#                network name). On Render point it at the backend service,
+#                e.g. https://mailflow-api.onrender.com.
+# ─────────────────────────────────────────────────────────────────────────────
+server {
+    listen ${PORT};
+    server_name _;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    gzip on;
+    gzip_types text/plain text/css application/json application/javascript application/xml image/svg+xml;
+    gzip_min_length 1024;
+
+    client_max_body_size 10m;
+
+    add_header X-Content-Type-Options nosniff always;
+    add_header X-Frame-Options DENY always;
+    add_header Referrer-Policy strict-origin-when-cross-origin always;
+
+    # SPA fallback
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # Static assets: long-lived immutable cache
+    location /assets/ {
+        try_files $uri =404;
+        expires 7d;
+        add_header Cache-Control "public, max-age=604800, immutable";
+    }
+
+    # API / OAuth callbacks / BullMQ dashboard → Express API
+    location /api/ {
+        proxy_pass ${BACKEND_URL};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Connection "";
+        proxy_connect_timeout 10s;
+        proxy_read_timeout 60s;
+    }
+}

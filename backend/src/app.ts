@@ -15,11 +15,20 @@ import slackRouter from "./routes/slack.routes";
 export function createApp() {
   const app = express();
 
+  // Trust the TLS-terminating proxies in front of us (Render LB, the nginx
+  // frontend) so req.ip / req.protocol reflect the real client.
+  app.set("trust proxy", 1);
+
   configurePassport();
+
+  // FRONTEND_URL may be a comma-separated list (multiple environments).
+  const allowedOrigins = env.FRONTEND_URL.split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
 
   app.use(
     cors({
-      origin: env.FRONTEND_URL,
+      origin: allowedOrigins,
       credentials: true,
     }),
   );

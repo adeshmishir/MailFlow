@@ -1,14 +1,14 @@
 import { Queue } from "bullmq";
 import IORedis from "ioredis";
-import { env } from "../config/env";
+import { getRedisUrl } from "../config/redis";
 
 export const EMAIL_QUEUE_NAME = "email-send";
 
 export function createRedisConnection(): IORedis {
-  return new IORedis({
-    host: env.REDIS_HOST,
-    port: env.REDIS_PORT,
+  return new IORedis(getRedisUrl(), {
     maxRetriesPerRequest: null,
+    // BullMQ needs a named connection to share timeouts cleanly.
+    connectionName: "mailflow",
   });
 }
 

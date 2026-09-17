@@ -13,49 +13,184 @@ import { env } from "../config/env";
  * `sendEmail()` and `classifySmtpError()` below; the scheduling route
  * only enqueues delayed BullMQ jobs and never sends.
  *
- * Credentials come exclusively from env. When ETHEREAL_USER/PASSWORD are
- * configured we use them; otherwise we mint a throwaway Ethereal test
- * account at runtime through nodemailer's PUBLIC createTestAccount API
- * (a free test mailbox, no secret involved) so the queue -> worker -> SMTP
- * path can be exercised end to end in development.
+ * Two delivery modes:
+ *
+ *  1. DEFAULT — Ethereal (test inbox). Messages are ACCEPTED by Ethereal's
+ *     SMTP but are NEVER delivered to a real mailbox (Gmail/Outlook/etc.).
+ *     A preview URL is generated so the email can be read on ethereal.email.
+ *     When ETHEREAL_USER/PASSWORD are configured they are used; otherwise a
+ *     throwaway Ethereal test account is minted at runtime. The frontend and
+ *     health endpoint report `mode == "ethereal"` so the UI can label these
+ *     as test deliveries instead of claiming real delivery.
+ *
+ *  2. PRODUCTION SMTP — when SMTP_HOST + SMTP_USER + SMTP_PASSWORD are all
+ *     set (Gmail, Outlook, SendGrid, or any provider). Sender identities are
+ *     validated against the authenticated account (e.g. Gmail requires the
+ *     From address to be the account or a verified alias) and the resulting
+ *     messageId/accepted/rejected info is logged and persisted.
+ *
+ * "Accepted" (nodemailer resolved -> status SENT) is NOT the same as a real
+ * inbox delivery: acceptance only means the SMTP server received the message.
  */
 
-type Credentials = { user: string; pass: string } | null;
+export type DeliveryMode = "ethereal" | "smtp";
 
-let credentialPromise: Promise<Credentials> | null = null;
+export interface DeliveryProfile {
+  mode: DeliveryMode;
+  label: string;
+  /** true when the provider generates a preview URL (Ethereal). */
+  previewAvailable: boolean;
+}
 
-async function resolveCredentials(): Promise<Credentials> {
-  if (env.ETHEREAL_USER && env.ETHEREAL_PASSWORD) {
-    return { user: env.ETHEREAL_USER, pass: env.ETHEREAL_PASSWORD };
+export interface SmtpIdentity {
+  mode: DeliveryMode;
+  host: string;
+  port: number;
+  secure: boolean;
+  user: string;
+  pass: string;
+  label: string;
+  previewAvailable: boolean;
+}
+
+function parseSecureFlag(value: string): boolean {
+  return ["true", "1", "yes", "on"].includes(value.toLowerCase());
+}
+
+export function isProductionSmtpConfigured(): boolean {
+  return Boolean(env.SMTP_HOST && env.SMTP_USER && env.SMTP_PASSWORD);
+}
+
+/**
+ * Synchronous, connection-free description of how MailFlow currently
+ * delivers email. Exposed via GET /api/health so the UI can show a
+ * truthful banner ("test mode" vs. "production SMTP").
+ */
+export function getDeliveryProfile(): DeliveryProfile {
+  if (isProductionSmtpConfigured()) {
+    return {
+      mode: "smtp",
+      label: `SMTP (${env.SMTP_HOST})`,
+      previewAvailable: false,
+    };
   }
+  return {
+    mode: "ethereal",
+    label: "Ethereal (test inbox)",
+    previewAvailable: true,
+  };
+}
+
+let identityPromise: Promise<SmtpIdentity> | null = null;
+
+async function resolveSmtpIdentity(): Promise<SmtpIdentity> {
+  if (isProductionSmtpConfigured()) {
+    const user = env.SMTP_USER!;
+    const secure = parseSecureFlag(env.SMTP_SECURE);
+    return {
+      mode: "smtp",
+      host: env.SMTP_HOST!,
+      port: env.SMTP_PORT,
+      secure,
+      user,
+      pass: env.SMTP_PASSWORD!,
+      label: user.includes("@") ? `SMTP ${env.SMTP_HOST} (${user})` : `SMTP ${env.SMTP_HOST}`,
+      previewAvailable: false,
+    };
+  }
+
+  // Ethereal — test-only. No secret involved; the publicly documented
+  // createTestAccount API returns a fresh test mailbox.
+  if (env.ETHEREAL_USER && env.ETHEREAL_PASSWORD) {
+    return {
+      mode: "ethereal",
+      host: env.ETHEREAL_HOST || "smtp.ethereal.email",
+      port: env.ETHEREAL_PORT || 587,
+      secure: false,
+      user: env.ETHEREAL_USER,
+      pass: env.ETHEREAL_PASSWORD,
+      label: "Ethereal (test inbox)",
+      previewAvailable: true,
+    };
+  }
+
   try {
     const account = await nodemailer.createTestAccount();
-    return { user: account.user, pass: account.pass };
+    return {
+      mode: "ethereal",
+      host: "smtp.ethereal.email",
+      port: 587,
+      secure: false,
+      user: account.user,
+      pass: account.pass,
+      label: "Ethereal (test inbox)",
+      previewAvailable: true,
+    };
   } catch (err) {
     console.error(
       "[email.service] failed to create Ethereal test account:",
       err instanceof Error ? err.message : err,
     );
-    return null;
+    throw err;
   }
+}
+
+export function getSmtpIdentity(): Promise<SmtpIdentity> {
+  identityPromise ??= resolveSmtpIdentity();
+  return identityPromise;
 }
 
 let transporterPromise: Transporter | null = null;
 
 async function getTransporter(): Promise<Transporter> {
   if (transporterPromise) return transporterPromise;
-  credentialPromise ??= resolveCredentials();
-  const creds = await credentialPromise;
+  const identity = await getSmtpIdentity();
   transporterPromise = nodemailer.createTransport({
-    host: env.ETHEREAL_HOST || "smtp.ethereal.email",
-    port: env.ETHEREAL_PORT || 587,
-    secure: false, // Ethereal uses STARTTLS on 587
-    auth: creds ? { user: creds.user, pass: creds.pass } : undefined,
+    host: identity.host,
+    port: identity.port,
+    secure: identity.secure,
+    auth: { user: identity.user, pass: identity.pass },
     connectionTimeout: 10_000,
     greetingTimeout: 10_000,
     socketTimeout: 30_000,
   });
   return transporterPromise;
+}
+
+/**
+ * Validate the "From" address against the configured provider. Gmail (and
+ * most personal-mail providers) only accept sends where the From address is
+ * the authenticated account or a verified send-as alias; anything else is
+ * rejected at the SMTP level with a permanent 550/553. Fail early with a
+ * clear message instead of a confusing mailbox bounce.
+ *
+ * - Ethereal: any sender is accepted (test inbox).
+ * - SMTP with an email-shaped user: From must match the account, unless
+ *   SMTP_ALLOW_ANY_FROM=true (relay providers).
+ * - SMTP with an API-key user (e.g. SendGrid "apikey"): no local check; the
+ *   provider enforces its own domain verification.
+ */
+export async function assertSenderAllowedForProvider(fromEmail: string): Promise<void> {
+  const identity = await getSmtpIdentity();
+  if (identity.mode !== "smtp") {
+    return;
+  }
+  if (env.SMTP_ALLOW_ANY_FROM.trim().toLowerCase() === "true") {
+    return;
+  }
+  const user = identity.user;
+  if (!user.includes("@")) {
+    return; // API-key style username — provider enforces sender verification.
+  }
+  if (fromEmail.trim().toLowerCase() !== user.trim().toLowerCase()) {
+    const err = new Error(
+      `Sender "${fromEmail}" is not authorized for the configured SMTP account "${user}". ` +
+        `For Gmail SMTP the From address must be your Gmail address (or a verified send-as alias). ` +
+        `Set SMTP_ALLOW_ANY_FROM=true only for relay/API providers that permit arbitrary From addresses.`,
+    ) as Error & { code?: number };
+    err.code = 553; // permanent — classifySmtpError marks the email FAILED.
+    throw err;
+  }
 }
 
 export interface EmailSendParams {
@@ -72,24 +207,56 @@ export interface EmailSendResult {
   accepted: string[];
   rejected: string[];
   previewUrl: string | null;
+  providerMode: DeliveryMode;
+  providerLabel: string;
 }
 
 export async function sendEmail(params: EmailSendParams): Promise<EmailSendResult> {
   const transporter = await getTransporter();
+  const identity = await getSmtpIdentity();
 
-  const info: SentMessageInfo = await transporter.sendMail({
-    from: { name: params.fromName, address: params.fromEmail },
-    to: params.to,
-    subject: params.subject,
-    text: params.text,
-    html: params.html,
-  });
+  await assertSenderAllowedForProvider(params.fromEmail);
+
+  let info: SentMessageInfo;
+  try {
+    info = await transporter.sendMail({
+      from: { name: params.fromName, address: params.fromEmail },
+      to: params.to,
+      subject: params.subject,
+      text: params.text,
+      html: params.html,
+    });
+  } catch (err) {
+    console.warn(
+      `[email.service] SMTP rejected message from=${params.fromEmail} to=${params.to} ` +
+        `error=${err instanceof Error ? err.message : String(err)}`,
+    );
+    throw err;
+  }
+
+  const messageId = String(info.messageId ?? "");
+  const accepted = Array.isArray(info.accepted) ? (info.accepted as string[]) : [];
+  const rejected = Array.isArray(info.rejected) ? (info.rejected as string[]) : [];
+  const previewUrl: string | null = identity.previewAvailable
+    ? nodemailer.getTestMessageUrl(info) || null
+    : null;
+
+  // Essential delivery facts only. No credentials are ever logged. The
+  // preview URL is only set for Ethereal (test inboxes, no secrets exposed).
+  console.log(
+    `[email.service] ${identity.mode === "ethereal" ? "test" : "accepted"}: ` +
+      `messageId=${messageId || "(none)"} provider="${identity.label}" ` +
+      `from=${params.fromEmail} to=${params.to} accepted=${accepted.length} rejected=${rejected.length}` +
+      (previewUrl ? ` preview=${previewUrl}` : ""),
+  );
 
   return {
-    messageId: String(info.messageId ?? ""),
-    accepted: Array.isArray(info.accepted) ? (info.accepted as string[]) : [],
-    rejected: Array.isArray(info.rejected) ? (info.rejected as string[]) : [],
-    previewUrl: nodemailer.getTestMessageUrl(info) || null,
+    messageId,
+    accepted,
+    rejected,
+    previewUrl,
+    providerMode: identity.mode,
+    providerLabel: identity.label,
   };
 }
 

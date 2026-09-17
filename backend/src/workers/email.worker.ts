@@ -96,7 +96,13 @@ async function runSend(job: Job, emailId: string): Promise<void> {
 
     await prisma.email.updateMany({
       where: { id: emailId, status: "PROCESSING" },
-      data: { status: "SENT", sentAt: new Date() },
+      data: {
+        status: "SENT",
+        sentAt: new Date(),
+        deliveryProvider: info.providerMode,
+        deliveryMessageId: info.messageId,
+        deliveryPreviewUrl: info.previewUrl,
+      },
     });
 
     // 3. Update search index in Elasticsearch (non-blocking)
@@ -113,6 +119,12 @@ async function runSend(job: Job, emailId: string): Promise<void> {
     const finalAttempt = job.attemptsMade >= maxAttempts - 1;
 
     if (isPermanent || finalAttempt) {
+      console.error(
+        `[worker] email ${emailId} ${isPermanent ? "permanently rejected" : "failed after retries"}: ` +
+          `from=${email.campaign.sender.email} to=${email.recipient} ` +
+          `error=${err instanceof Error ? err.message : String(err)}`,
+      );
+
       await prisma.email.updateMany({
         where: { id: emailId, status: "PROCESSING" },
         data: {

@@ -40,6 +40,9 @@ export interface EmailSummary {
   sentAt: Date | null;
   status: string;
   error: string | null;
+  deliveryProvider: string | null;
+  deliveryMessageId: string | null;
+  deliveryPreviewUrl: string | null;
 }
 
 export interface ScheduleEmailsResult {
@@ -157,6 +160,9 @@ export async function listScheduledEmails(
       sentAt: email.sentAt,
       status: email.status,
       error: email.error,
+      deliveryProvider: email.deliveryProvider,
+      deliveryMessageId: email.deliveryMessageId,
+      deliveryPreviewUrl: email.deliveryPreviewUrl,
     })),
     nextCursor: hasMore && page.length > 0 ? (page[page.length - 1]?.id ?? null) : null,
   };
@@ -189,6 +195,9 @@ export async function listSentEmails(
       sentAt: email.sentAt,
       status: email.status,
       error: email.error,
+      deliveryProvider: email.deliveryProvider,
+      deliveryMessageId: email.deliveryMessageId,
+      deliveryPreviewUrl: email.deliveryPreviewUrl,
     })),
     nextCursor: hasMore && page.length > 0 ? (page[page.length - 1]?.id ?? null) : null,
   };

@@ -62,17 +62,20 @@ model Campaign {
 }
 
 model Email {
-  id          String      @id @default(uuid())
-  campaignId  String
-  campaign    Campaign    @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  recipient   String
-  scheduledAt DateTime
-  sentAt      DateTime?
-  status      EmailStatus @default(SCHEDULED)
-  jobId       String?     @unique
-  error       String?
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  id                 String      @id @default(uuid())
+  campaignId         String
+  campaign           Campaign    @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  recipient          String
+  scheduledAt        DateTime
+  sentAt             DateTime?
+  status             EmailStatus @default(SCHEDULED)
+  jobId              String?     @unique
+  error              String?
+  deliveryProvider   String?
+  deliveryMessageId  String?
+  deliveryPreviewUrl String?
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
 
   @@index([campaignId])
   @@index([scheduledAt])

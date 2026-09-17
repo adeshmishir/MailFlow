@@ -7,7 +7,7 @@ import ScheduledPage from "./pages/ScheduledPage";
 import SentPage from "./pages/SentPage";
 import EmailDetailPage from "./pages/EmailDetailPage";
 import ComposePage from "./pages/ComposePage";
-import { getCurrentUser, getScheduledEmails, getSentEmails } from "./services/api";
+import { fetchHealth, getCurrentUser, getScheduledEmails, getSentEmails } from "./services/api";
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -20,6 +20,7 @@ export default function App() {
 
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [isTestMode, setIsTestMode] = useState(false);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -55,6 +56,12 @@ export default function App() {
   useEffect(() => {
     checkUserSession();
   }, [checkUserSession]);
+
+  useEffect(() => {
+    fetchHealth()
+      .then((health) => setIsTestMode(health.delivery?.mode === "ethereal"))
+      .catch(() => setIsTestMode(false));
+  }, []);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -138,6 +145,21 @@ export default function App() {
 
       {/* Main View Container */}
       <main className="flex-1 flex flex-col min-w-0 bg-white min-h-screen">
+        {isTestMode && (
+          <div className="bg-amber-50 border-b border-amber-200 px-4 py-2.5 text-xs sm:text-sm text-amber-900 flex items-start gap-2.5">
+            <span className="shrink-0">🧪</span>
+            <p>
+              <strong className="font-semibold">Test mode active.</strong> Emails are delivered to
+              an Ethereal test inbox, not real inboxes like Gmail. Set{" "}
+              <code className="bg-amber-100 px-1 rounded font-mono">SMTP_HOST</code>,{" "}
+              <code className="bg-amber-100 px-1 rounded font-mono">SMTP_USER</code> and{" "}
+              <code className="bg-amber-100 px-1 rounded font-mono">SMTP_PASSWORD</code> in{" "}
+              <code className="bg-amber-100 px-1 rounded font-mono">.env</code> to enable
+              production delivery.
+            </p>
+          </div>
+        )}
+
         {activeTab === "scheduled" && (
           <ScheduledPage onSelectEmail={handleSelectEmail} />
         )}

@@ -1,0 +1,228 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# MailFlow — production Docker Compose
+#
+# Services: postgres, redis, elasticsearch, migrate (one-shot), backend,
+#           worker, frontend (nginx), and an OPTIONAL Caddy reverse proxy
+#           (automatic TLS) behind the "proxy" profile.
+#
+# Stateful services are NOT published to the host — the API and worker reach
+# them over the private "backend" network by service name. Only the frontend
+# (127.0.0.1:8080 for a bring-your-own reverse proxy) and, optionally, Caddy
+# (:80/:443) are reachable from outside.
+#
+# Quick start:
+#   cp .env.example .env          # then set SESSION_SECRET, POSTGRES_PASSWORD,
+#                                 # GOOGLE_*/SLACK_*, MAILFLOW_DOMAIN, ...
+#   docker compose -f docker-compose.prod.yml --profile proxy up -d --build
+#
+# The infrastructure URLs below (DATABASE_URL, REDIS_HOST, ELASTICSEARCH_URL)
+# are OVERRIDDEN to Docker-network service names, so the same .env works for
+# local development and this production stack.
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: mailflow
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-mailflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mailflow}
+      POSTGRES_DB: ${POSTGRES_DB:-mailflow}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mailflow} -d ${POSTGRES_DB:-mailflow}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.17.3
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: -Xms512m -Xmx512m
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    networks:
+      - backend
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:9200/_cluster/health || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 30s
+
+  # Runs Prisma migrations once, then exits. Backend/worker wait for it via
+  # `service_completed_successfully`.
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: backend
+    image: mailflow-backend:latest
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-mailflow}:${POSTGRES_PASSWORD:-mailflow}@postgres:5432/${POSTGRES_DB:-mailflow}?schema=public
+    command: ["sh", "-c", "npx prisma migrate deploy --schema prisma/schema.prisma"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - backend
+    restart: "no"
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: backend
+    image: mailflow-backend:latest
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-mailflow}:${POSTGRES_PASSWORD:-mailflow}@postgres:5432/${POSTGRES_DB:-mailflow}?schema=public
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+      HEALTH_URL: http://127.0.0.1:5000/api/health
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - backend
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch(process.env.HEALTH_URL).then(r=>r.ok?r.json():Promise.reject()).then(d=>d.status==='ok'?process.exit(0):process.exit(1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: backend
+    image: mailflow-backend:latest
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-mailflow}:${POSTGRES_PASSWORD:-mailflow}@postgres:5432/${POSTGRES_DB:-mailflow}?schema=public
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+      HEALTH_URL: http://127.0.0.1:${WORKER_HEALTH_PORT:-5010}/health
+    command: ["node", "dist/worker.js"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - backend
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch(process.env.HEALTH_URL).then(r=>r.ok?r.json():Promise.reject()).then(d=>d.status==='ok'?process.exit(0):process.exit(1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: frontend
+    image: mailflow-frontend:latest
+    environment:
+      # Injected into nginx via envsubst. Default in the image is
+      # http://backend:5000, but keeping it explicit here documents intent.
+      BACKEND_URL: http://backend:5000
+    # Localhost-only: bind a host reverse proxy here (see README) or use the
+    # "proxy" profile below for public :80/:443 with automatic TLS.
+    ports:
+      - "127.0.0.1:8080:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - backend
+    restart: unless-stopped
+
+  # OPTIONAL: public TLS reverse proxy (Caddy). Enable with:
+  #   docker compose -f docker-compose.prod.yml --profile proxy up -d
+  proxy:
+    image: caddy:2-alpine
+    profiles: ["proxy"]
+    env_file: .env
+    environment:
+      MAILFLOW_DOMAIN: ${MAILFLOW_DOMAIN:-mailflow.example.com}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - frontend
+    networks:
+      - backend
+    restart: unless-stopped
+
+networks:
+  backend:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  redis-data:
+  elasticsearch-data:
+  caddy-data:
+  caddy-config:

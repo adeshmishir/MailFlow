@@ -25,6 +25,9 @@ export interface EmailItem {
   body?: string;
   senderEmail?: string;
   senderName?: string;
+  deliveryProvider?: string | null;
+  deliveryMessageId?: string | null;
+  deliveryPreviewUrl?: string | null;
 }
 
 export interface EmailDetail {
@@ -37,6 +40,9 @@ export interface EmailDetail {
   sentAt: string | null;
   createdAt: string;
   error: string | null;
+  deliveryProvider?: string | null;
+  deliveryMessageId?: string | null;
+  deliveryPreviewUrl?: string | null;
   sender: {
     id: string;
     name: string;
@@ -75,7 +81,11 @@ export interface SlackStatus {
 export interface HealthResponse {
   status: string;
   service: string;
-  timestamp: string;
+  delivery?: {
+    mode: string;
+    label: string;
+    previewAvailable: boolean;
+  };
 }
 
 export type ActiveTab = "scheduled" | "sent" | "compose" | "detail" | "integrations" | "login";

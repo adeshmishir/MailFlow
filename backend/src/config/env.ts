@@ -6,13 +6,22 @@ const envSchema = z.object({
 
   PORT: z.coerce.number().int().positive().default(5000),
 
+  WORKER_HEALTH_PORT: z.coerce.number().int().positive().default(5010),
+
   DATABASE_URL: z.string().min(1),
 
   REDIS_HOST: z.string().default("localhost"),
   REDIS_PORT: z.coerce.number().int().positive().default(6379),
+  // Full connection string for managed / TLS Redis (e.g. Render Key Value,
+  // Upstash, Redis Cloud). When set, REDIS_HOST/REDIS_PORT/REDIS_PASSWORD are
+  // ignored. Supports redis:// and rediss:// (TLS) schemes.
+  REDIS_URL: z.string().default(""),
+  REDIS_PASSWORD: z.string().default(""),
 
   ELASTICSEARCH_URL: z.string().url().default("http://localhost:9200"),
   ELASTICSEARCH_INDEX: z.string().default("mailflow-emails"),
+  // Optional API key for externally hosted Elasticsearch (Elastic Cloud, etc.)
+  ELASTICSEARCH_API_KEY: z.string().default(""),
 
   FRONTEND_URL: z.string().url().default("http://localhost:5173"),
 
@@ -35,6 +44,19 @@ const envSchema = z.object({
   ),
   ETHEREAL_USER: z.string().default(""),
   ETHEREAL_PASSWORD: z.string().default(""),
+
+  // Generic / production SMTP provider (Gmail, Outlook, SendGrid, ...).
+  // When SMTP_HOST + SMTP_USER + SMTP_PASSWORD are all set, they take
+  // precedence over Ethereal. Ethereal remains the default test provider.
+  SMTP_HOST: z.string().default(""),
+  SMTP_PORT: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+    z.coerce.number().int().positive().default(587),
+  ),
+  SMTP_USER: z.string().default(""),
+  SMTP_PASSWORD: z.string().default(""),
+  SMTP_SECURE: z.string().trim().default("false"),
+  SMTP_ALLOW_ANY_FROM: z.string().trim().default("false"),
 
   WORKER_CONCURRENCY: z.coerce.number().int().positive().default(5),
   MIN_EMAIL_DELAY_MS: z.coerce.number().int().nonnegative().default(2000),

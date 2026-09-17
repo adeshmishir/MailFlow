@@ -2,6 +2,7 @@ import session from "express-session";
 import RedisStore from "connect-redis";
 import { createClient } from "redis";
 import { env } from "./env";
+import { getRedisUrl } from "./redis";
 
 export const SESSION_COOKIE_NAME = "mailflow.sid";
 export const SESSION_STORE_PREFIX = "mailflow:sess:";
@@ -9,7 +10,7 @@ export const SESSION_STORE_PREFIX = "mailflow:sess:";
 const SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 export const sessionRedisClient = createClient({
-  url: `redis://${env.REDIS_HOST}:${env.REDIS_PORT}`,
+  url: getRedisUrl(),
 });
 
 sessionRedisClient.on("error", (err) => {

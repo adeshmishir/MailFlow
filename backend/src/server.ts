@@ -7,7 +7,7 @@ import { initSearchIndex } from "./services/search.service";
 const app = createApp();
 
 const server = app.listen(env.PORT, async () => {
-  console.log(`[server] MailFlow API listening on http://localhost:${env.PORT}`);
+  console.log(`[server] MailFlow API listening on 0.0.0.0:${env.PORT}`);
   await initSearchIndex();
 });
 

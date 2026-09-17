@@ -1,0 +1,16 @@
+# Public origin for MailFlow (set MAILFLOW_DOMAIN in .env).
+# Caddy automatically provisions + renews a Let's Encrypt certificate for it.
+{$MAILFLOW_DOMAIN} {
+	encode gzip
+
+	# HTML routing and API/static traffic — nginx container does the SPA
+	# fallback and /api reverse proxy to the Express API.
+	reverse_proxy frontend:80
+
+	# Security headers for the SPA and API responses.
+	header {
+		X-Content-Type-Options "nosniff"
+		-X-Frame-Options
+		Referrer-Policy "strict-origin-when-cross-origin"
+	}
+}

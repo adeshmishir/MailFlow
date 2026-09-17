@@ -49,6 +49,8 @@ export default function SentPage({ onSelectEmail }: SentPageProps) {
     return `Sent ${d.toLocaleDateString([], { month: "short", day: "numeric" })} at ${d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
   };
 
+  const isTestDelivery = (email: EmailItem) => email.deliveryProvider === "ethereal";
+
   return (
     <div className="flex-1 flex flex-col bg-white min-h-screen">
       <TopSearchBar
@@ -109,10 +111,38 @@ export default function SentPage({ onSelectEmail }: SentPageProps) {
                   To: {email.recipient}
                 </span>
 
-                {/* Neutral Gray Sent Badge */}
-                <div className="bg-gray-100 text-gray-700 border border-gray-200/80 rounded-full text-xs px-3 py-0.5 font-medium inline-flex items-center gap-1.5 shrink-0">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                  <span>{formatSentTime(email.sentAt)}</span>
+                {/* Delivery badge */}
+                <div className="flex items-center gap-2 shrink-0">
+                  <div
+                    className={`rounded-full text-xs px-3 py-0.5 font-medium inline-flex items-center gap-1.5 border ${
+                      isTestDelivery(email)
+                        ? "bg-amber-50 text-amber-800 border-amber-200"
+                        : "bg-gray-100 text-gray-700 border-gray-200/80"
+                    }`}
+                  >
+                    <span
+                      className={`w-1.5 h-1.5 rounded-full ${
+                        isTestDelivery(email) ? "bg-amber-500" : "bg-emerald-500"
+                      }`}
+                    />
+                    <span>
+                      {isTestDelivery(email)
+                        ? "Test inbox (Ethereal)"
+                        : formatSentTime(email.sentAt)}
+                    </span>
+                  </div>
+
+                  {isTestDelivery(email) && email.deliveryPreviewUrl && (
+                    <a
+                      href={email.deliveryPreviewUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-full px-3 py-0.5"
+                    >
+                      Open preview ↗
+                    </a>
+                  )}
                 </div>
 
                 {/* Subject */}
