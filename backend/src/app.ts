@@ -5,6 +5,7 @@ import { env } from "./config/env";
 import { configurePassport } from "./config/passport";
 import { createSessionMiddleware } from "./config/session";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler";
+import adminRouter from "./routes/admin.routes";
 import authRouter from "./routes/auth.routes";
 import emailRouter from "./routes/email.routes";
 import healthRouter from "./routes/health.routes";
@@ -29,6 +30,7 @@ export function createApp() {
 
   app.use("/api/health", healthRouter);
   app.use("/api/auth", authRouter);
+  app.use("/api/admin", adminRouter);
   app.use("/api/senders", senderRouter);
   app.use("/api/emails", emailRouter);
   app.use("/api/slack", slackRouter);
