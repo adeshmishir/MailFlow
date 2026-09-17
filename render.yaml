@@ -40,9 +40,10 @@ services:
     plan: free # -> 0.5c-512mb before real use
     dockerfilePath: ./Dockerfile
     dockerContext: .
-    # Safe, idempotent migrations run before every deploy. `prisma migrate
-    # deploy` never resets or drops production data.
-    preDeployCommand: npx prisma migrate deploy --schema prisma/schema.prisma
+    # Migrations run at container start (see the image's CMD) because Free
+    # tier services do not support preDeployCommand. `prisma migrate deploy`
+    # is safe and idempotent — it only applies pending migrations and never
+    # resets or drops data. The API server starts only after it succeeds.
     healthCheckPath: /api/health
     numInstances: 1
     envVars:

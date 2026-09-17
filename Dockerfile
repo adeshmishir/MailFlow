@@ -63,7 +63,14 @@ COPY backend/package.json backend/package.json
 USER node
 WORKDIR /app/backend
 EXPOSE 5000
-CMD ["node", "dist/src/server.js"]
+# Default start for the API: apply pending Prisma migrations, then exec the
+# compiled server only if they succeeded (`exec` preserves signals so Render
+# can shut down gracefully). Render's Free tier has no preDeployCommand, so
+# migrations run here at container start; local docker-compose.prod.yml uses
+# a separate one-shot `migrate` service and the same idempotent command.
+# The worker overrides CMD (Render dockerCommand / compose `command`) with
+# `node dist/worker.js` and therefore never runs migrations.
+CMD ["sh", "-c", "npx prisma migrate deploy --schema prisma/schema.prisma && exec node dist/src/server.js"]
 
 # ---------- Frontend runtime ----------
 # Serves the Vite build with nginx and reverse-proxies /api to the Express
