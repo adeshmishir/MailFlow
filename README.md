@@ -155,7 +155,7 @@ A secure dashboard (Bull Board) is mounted at `GET /api/admin/queues` behind the
 ## Job Lifecycle
 
 1. `POST /api/emails/schedule` creates a Campaign + Email rows (`SCHEDULED`) in one transaction and enqueues one `send-email` BullMQ job per email with `jobId = email.id` (dedup by design).
-2. The worker picks up eligible jobs, claims the email via an atomic `SCHEDULED -> PROCESSING` transition, checks the distributed rate limit / min-delay gate, then sends via SMTP and marks the email `SENT` (storing `sentAt`) or `FAILED` (storing `error`).
+2. The worker picks up eligible jobs, claims the email via an atomic `SCHEDULED -> PROCESSING` transition, checks the distributed rate limit / min-delay gate, then sends via SMTP and marks the email `SENT` (storing `sentAt`) or `FAILED` (storing `error`). Emails already in `SENT`/`FAILED` are never re-sent (idempotent even if BullMQ reprocesses a job), and an email left stuck in `PROCESSING` by a worker that crashed mid-send is resumed instead of abandoned.
 3. When the hourly budget is exhausted the job is **delayed, never dropped**; the worker re-enqueues it until the window resets and notifies Slack.
 4. `SCHEDULED` emails appear on the Scheduled page; `SENT` emails appear on the Sent page.
 

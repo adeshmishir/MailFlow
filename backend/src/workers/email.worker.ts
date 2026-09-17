@@ -36,8 +36,14 @@ async function runSend(job: Job, emailId: string): Promise<void> {
     },
   });
 
-  if (!email || email.status !== "SCHEDULED") {
-    return; // stale / already claimed by another worker
+  if (!email) {
+    return; // email deleted
+  }
+
+  // Already finished — never send twice (also covers BullMQ reprocessing a job
+  // whose email legitimately completed).
+  if (email.status === "SENT" || email.status === "FAILED") {
+    return;
   }
 
   // 1. Check rate limit and min-delay gate
@@ -64,13 +70,17 @@ async function runSend(job: Job, emailId: string): Promise<void> {
     redis.disconnect();
   }
 
-  // 2. Claim email status SCHEDULED -> PROCESSING
-  const claimed = await prisma.email.updateMany({
-    where: { id: emailId, status: "SCHEDULED" },
-    data: { status: "PROCESSING" },
-  });
-  if (claimed.count === 0) {
-    return; // lost claim to concurrent worker
+  // 2. Claim email status SCHEDULED -> PROCESSING. An email already in
+  //    PROCESSING means a previous worker crashed mid-send (BullMQ re-delivered
+  //    the stalled job), so resume the send instead of abandoning it.
+  if (email.status === "SCHEDULED") {
+    const claimed = await prisma.email.updateMany({
+      where: { id: emailId, status: "SCHEDULED" },
+      data: { status: "PROCESSING" },
+    });
+    if (claimed.count === 0) {
+      return; // lost claim to concurrent worker
+    }
   }
 
   try {
