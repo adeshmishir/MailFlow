@@ -3,6 +3,7 @@ import StatusBadge from "./StatusBadge";
 
 interface SlackStatus {
   connected: boolean;
+  configured: boolean;
   teamName: string | null;
   teamId: string | null;
 }
@@ -19,12 +20,13 @@ export default function SlackConnectionCard() {
       setError(null);
       const res = await fetch("/api/slack/status", {
         headers: { Accept: "application/json" },
+        credentials: "include",
       });
       if (res.ok) {
         const data = await res.json();
         setStatus(data);
       } else if (res.status === 401) {
-        setStatus({ connected: false, teamName: null, teamId: null });
+        setStatus({ connected: false, configured: true, teamName: null, teamId: null });
       } else {
         setError("Unable to load Slack status");
       }
@@ -49,6 +51,7 @@ export default function SlackConnectionCard() {
       const res = await fetch("/api/slack/disconnect", {
         method: "POST",
         headers: { Accept: "application/json" },
+        credentials: "include",
       });
       if (res.ok) {
         await fetchStatus();
@@ -84,19 +87,25 @@ export default function SlackConnectionCard() {
 
       {!loading && status && (
         <div className="flex items-center justify-between pt-2">
-          {status.connected ? (
-            <div>
+          <div className="min-w-0">
+            {status.connected ? (
               <p className="text-sm font-medium text-gray-700">
-                Workspace: <span className="text-emerald-700 font-semibold">{status.teamName}</span>
+                Workspace:{" "}
+                <span className="text-emerald-700 font-semibold">{status.teamName}</span>
               </p>
-            </div>
-          ) : (
-            <p className="text-xs text-gray-400">
-              No Slack workspace connected to your account.
-            </p>
-          )}
+            ) : status.configured ? (
+              <p className="text-xs text-gray-400">
+                No Slack workspace connected to your account.
+              </p>
+            ) : (
+              <p className="text-xs text-amber-700">
+                Slack is not configured. Add SLACK_CLIENT_ID and
+                SLACK_CLIENT_SECRET to the backend environment to enable it.
+              </p>
+            )}
+          </div>
 
-          <div>
+          <div className="shrink-0 ml-3">
             {status.connected ? (
               <button
                 onClick={handleDisconnect}
@@ -105,10 +114,17 @@ export default function SlackConnectionCard() {
               >
                 {actionLoading ? "Disconnecting..." : "Disconnect Slack"}
               </button>
-            ) : (
+            ) : status.configured ? (
               <button
                 onClick={handleConnect}
                 className="px-4 py-2 text-xs font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors cursor-pointer"
+              >
+                Connect Slack
+              </button>
+            ) : (
+              <button
+                disabled
+                className="px-4 py-2 text-xs font-medium text-gray-400 bg-gray-100 rounded-lg cursor-not-allowed"
               >
                 Connect Slack
               </button>

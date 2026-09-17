@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import type { ActiveTab, User } from "./types";
 import Sidebar from "./components/Sidebar";
+import HomePage from "./pages/HomePage";
 import LoginPage from "./pages/LoginPage";
 import ScheduledPage from "./pages/ScheduledPage";
 import SentPage from "./pages/SentPage";
@@ -54,6 +55,20 @@ export default function App() {
   useEffect(() => {
     checkUserSession();
   }, [checkUserSession]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("slack") === "connected") {
+      showToast("Slack connected. Rate limit alerts are now enabled.");
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+    const slackError = params.get("slack_error");
+    if (slackError) {
+      showToast(`Slack connection failed: ${decodeURIComponent(slackError)}`);
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleSelectEmail = (id: string) => {
     setSelectedEmailId(id);
@@ -143,6 +158,8 @@ export default function App() {
             currentUser={currentUser}
           />
         )}
+
+        {activeTab === "integrations" && <HomePage />}
       </main>
     </div>
   );

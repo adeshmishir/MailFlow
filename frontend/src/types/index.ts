@@ -67,6 +67,7 @@ export interface ScheduleEmailsPayload {
 
 export interface SlackStatus {
   connected: boolean;
+  configured: boolean;
   teamName: string | null;
   teamId: string | null;
 }
@@ -77,4 +78,4 @@ export interface HealthResponse {
   timestamp: string;
 }
 
-export type ActiveTab = "scheduled" | "sent" | "compose" | "detail" | "login";
+export type ActiveTab = "scheduled" | "sent" | "compose" | "detail" | "integrations" | "login";

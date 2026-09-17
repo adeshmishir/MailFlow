@@ -5,6 +5,7 @@ import {
   ClockIcon,
   MailFlowLogo,
   PaperPlaneIcon,
+  PlugIcon,
   PlusIcon,
 } from "./Icons";
 import { logoutUser } from "../services/api";
@@ -158,6 +159,24 @@ export default function Sidebar({
                 {sentCount}
               </span>
             )}
+          </button>
+        </nav>
+
+        {/* Integrations Section */}
+        <nav className="space-y-1">
+          <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-2 px-3">
+            INTEGRATIONS
+          </p>
+          <button
+            onClick={() => onSelectTab("integrations")}
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors cursor-pointer ${
+              activeTab === "integrations"
+                ? "bg-emerald-50 text-emerald-900 font-semibold"
+                : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+            }`}
+          >
+            <PlugIcon className={`w-4 h-4 ${activeTab === "integrations" ? "text-emerald-700" : "text-gray-400"}`} />
+            <span>Integrations</span>
           </button>
         </nav>
       </div>
