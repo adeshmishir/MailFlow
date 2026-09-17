@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { prisma } from "../config/database";
 import { requireAuth } from "../middleware/auth";
 import { EMAIL_QUEUE_NAME } from "../queues/email.queue";
 import {
@@ -94,6 +95,52 @@ emailRouter.get(
     });
 
     return res.json(result);
+  }),
+);
+
+/**
+ * GET /api/emails/:id
+ * Auth required. Retrieve full single email details scoped to authenticated user.
+ */
+emailRouter.get(
+  "/:id",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const emailId = String(req.params.id);
+    const email = await prisma.email.findFirst({
+      where: {
+        id: emailId,
+        campaign: { userId: req.user!.id },
+      },
+      include: {
+        campaign: {
+          include: { sender: true },
+        },
+      },
+    });
+
+    if (!email) {
+      return res.status(404).json({ error: "Email not found" });
+    }
+
+    return res.json({
+      email: {
+        id: email.id,
+        recipient: email.recipient,
+        subject: email.campaign.subject,
+        body: email.campaign.body,
+        status: email.status,
+        scheduledAt: email.scheduledAt,
+        sentAt: email.sentAt,
+        createdAt: email.createdAt,
+        error: email.error,
+        sender: {
+          id: email.campaign.sender.id,
+          name: email.campaign.sender.name,
+          email: email.campaign.sender.email,
+        },
+      },
+    });
   }),
 );
 
