@@ -9,6 +9,7 @@ import authRouter from "./routes/auth.routes";
 import emailRouter from "./routes/email.routes";
 import healthRouter from "./routes/health.routes";
 import senderRouter from "./routes/sender.routes";
+import slackRouter from "./routes/slack.routes";
 
 export function createApp() {
   const app = express();
@@ -30,6 +31,7 @@ export function createApp() {
   app.use("/api/auth", authRouter);
   app.use("/api/senders", senderRouter);
   app.use("/api/emails", emailRouter);
+  app.use("/api/slack", slackRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);
