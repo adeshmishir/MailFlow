@@ -2,6 +2,7 @@ import { z } from "zod";
 import { prisma } from "../config/database";
 import { env } from "../config/env";
 import { emailQueue, EMAIL_QUEUE_NAME } from "../queues/email.queue";
+import { indexEmail } from "./search.service";
 
 /**
  * emailScheduling.service.ts
@@ -111,6 +112,9 @@ export async function scheduleEmails(
         removeOnComplete: true,
         removeOnFail: false,
       },
+    );
+    indexEmail(email.id).catch((err) =>
+      console.warn(`[scheduling] Indexing email ${email.id} failed:`, err),
     );
   }
 

@@ -2,11 +2,13 @@ import { createApp } from "./app";
 import { prisma } from "./config/database";
 import { env } from "./config/env";
 import { disconnectSessionStore } from "./config/session";
+import { initSearchIndex } from "./services/search.service";
 
 const app = createApp();
 
-const server = app.listen(env.PORT, () => {
+const server = app.listen(env.PORT, async () => {
   console.log(`[server] MailFlow API listening on http://localhost:${env.PORT}`);
+  await initSearchIndex();
 });
 
 async function shutdown(signal: string): Promise<void> {

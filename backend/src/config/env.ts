@@ -12,6 +12,7 @@ const envSchema = z.object({
   REDIS_PORT: z.coerce.number().int().positive().default(6379),
 
   ELASTICSEARCH_URL: z.string().url().default("http://localhost:9200"),
+  ELASTICSEARCH_INDEX: z.string().default("mailflow-emails"),
 
   FRONTEND_URL: z.string().url().default("http://localhost:5173"),
 
